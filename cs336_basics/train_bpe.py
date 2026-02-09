@@ -137,7 +137,7 @@ def pre_tokenize_parallel(file_path, special_token, profile_workers: bool = Fals
     with open(file_path, "rb") as f:
         boundaries = find_chunk_boundaries(f, num_chunks, b"<|endoftext|>")
         ranges = list(zip(boundaries[:-1], boundaries[1:]))
-
+        
         with ProcessPoolExecutor(num_processes) as ex:
             futures = [
                 ex.submit(
@@ -349,8 +349,8 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str] = None
         for s in special_tokens:
             vocab[n] = s.encode('utf-8')
             n += 1
-    save_vocab(vocab, "vocab.txt")
-    save_merges(merges, "merges.txt")
+    save_vocab(vocab, "../data/vocab.txt")
+    save_merges(merges, "../data/merges.txt")
 
     return vocab, merges
 
