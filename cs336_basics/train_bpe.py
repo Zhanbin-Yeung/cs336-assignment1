@@ -255,7 +255,21 @@ def merge(old_word:tuple[int, ...], old_word_freq, pair:tuple[int, int], new_id)
             i += 1
     new_word = tuple(new_word)
         
-    return new_word, local_delta
+     # === 差集更新 pairs_to_words 用 ===
+    # 用 set（不是 Counter）即可：pairs_to_words 只需要“这个 word 是否包含该 pair”
+    if len(old_word) >= 2:
+        old_pairs_set: Set[tuple[int, int]] = set(zip(old_word[:-1], old_word[1:]))
+    else:
+        old_pairs_set = set()
+    if len(new_word) >= 2:
+        new_pairs_set: Set[tuple[int, int]] = set(zip(new_word[:-1], new_word[1:]))
+    else:
+        new_pairs_set = set()
+
+    removed_pairs = old_pairs_set - new_pairs_set
+    added_pairs = new_pairs_set - old_pairs_set
+
+    return new_word, local_delta, removed_pairs, added_pairs
 
 
 
@@ -291,13 +305,14 @@ def compute_merge(pre_token_dict:Counter[tuple[int, ...]], nums_merge: int, voca
         words = list(pairs_to_words[pair])
         for word in words:
             word_freq = pre_token_dict[word]
-            new_word, local_delta = merge(word, word_freq, pair, new_id)
+            new_word, local_delta, removed_pairs, added_pairs = merge(word, word_freq, pair, new_id)
 
-            for p in zip(word[:-1], word[1:]):
+            # 只更新发生变化的 pair
+            for p in removed_pairs:
                 pairs_to_words[p].discard(word)
-            for p in zip(new_word[:-1], new_word[1:]):
+            for p in added_pairs:
                 pairs_to_words[p].add(new_word)
-        
+
             global_delta.update(local_delta)
             pre_token_dict[new_word] = pre_token_dict.get(new_word, 0) + word_freq
             del pre_token_dict[word]
@@ -340,10 +355,11 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str] = None
     t0 = time.time()
     pre_token_dict = pre_tokenize_parallel(input_path, special_tokens, profile_workers, prof_dir)
     t1 = time.time() 
-    # print(f"[INFO] Pre-tokenization finished in {t1 - t0:.3f}s")
+    print(f"[INFO] Pre-tokenization finished in {t1 - t0:.3f}s")
     vocab, merges = compute_merge(pre_token_dict, num_merges, vocab)
     t2 = time.time()
-    # print(f"[INFO] Merge computation finished in {t2 - t1:.3f}s")
+    print(f"[INFO] Merge computation finished in {t2 - t1:.3f}s")
+    print(f"[INFO] Total training time: {t2 - t0:.3f}s")
     n = len(vocab)
     if special_tokens is not None:
         for s in special_tokens:

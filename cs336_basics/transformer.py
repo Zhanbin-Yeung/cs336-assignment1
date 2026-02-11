@@ -5,16 +5,18 @@ from typing import Optional
 from jaxtyping import Bool, Float, Int
 from collections.abc import Callable, Iterable
 from torch import Tensor
+import numpy.typing as npt
+import typing
+import os
 
 class Linear(nn.Module):
     def __init__ (self, 
                   in_features: int, 
                   out_features: int, 
-                  device: torch.device | None=None, 
                   dtype:torch.dtype | None=None):
         
         super().__init__()
-        self.weight = nn.Parameter(torch.empty(out_features, in_features, device=device, dtype=dtype))
+        self.weight = nn.Parameter(torch.empty(out_features, in_features, dtype=dtype))
         sigma = math.sqrt(2.0/(in_features + out_features))
         nn.init.trunc_normal_(self.weight, 0, sigma, a= -3 * sigma, b= 3 * sigma)
     
@@ -23,9 +25,9 @@ class Linear(nn.Module):
     
 
 class Embedding(nn.Module):
-    def __init__(self, num_embeddings: int, embedding_dim: int, device=None, dtype=None):
+    def __init__(self, num_embeddings: int, embedding_dim: int, dtype=None):
         super().__init__()
-        self.weight = nn.Parameter(torch.empty(num_embeddings, embedding_dim, device=device, dtype=dtype))
+        self.weight = nn.Parameter(torch.empty(num_embeddings, embedding_dim, dtype=dtype))
         nn.init.trunc_normal_(self.weight, 0, 1, a=-3, b=3)
     
     def forward(self, token_ids: torch.Tensor):
@@ -33,11 +35,11 @@ class Embedding(nn.Module):
     
 class RMSNorm(nn.Module):
 
-    def __init__(self, d_model: int, eps: float = 1e-5, device=None, dtype=None):
+    def __init__(self, d_model: int, eps: float = 1e-5, dtype=None):
         super().__init__()
         self.eps = eps
         self.d_model = d_model
-        self.weight = nn.Parameter(torch.ones(d_model, device=device, dtype=dtype))
+        self.weight = nn.Parameter(torch.ones(d_model, dtype=dtype))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         in_dtype = x.dtype
@@ -53,11 +55,11 @@ class RMSNorm(nn.Module):
 
 
 class SwiGLU_FFN(nn.Module):
-    def __init__(self, d_model: int, d_ff: int, device:torch.device | None = None, dtype: torch.dtype | None = None ):
+    def __init__(self, d_model: int, d_ff: int, dtype: torch.dtype | None = None ):
         super().__init__()
-        self.w1 = Linear(d_model, d_ff,   device=device, dtype=dtype)
-        self.w2 = Linear(d_ff, d_model,  device=device, dtype=dtype)
-        self.w3 = Linear(d_model, d_ff, device=device, dtype=dtype)
+        self.w1 = Linear(d_model, d_ff, dtype=dtype)
+        self.w2 = Linear(d_ff, d_model, dtype=dtype)
+        self.w3 = Linear(d_model, d_ff, dtype=dtype)
     
     def forward(self, x):
 
@@ -68,7 +70,6 @@ class SwiGLU_FFN(nn.Module):
 
 class RotaryPositionalEmbedding(nn.Module):
     def __init__(self, theta: float, d_k: int, max_seq_len: int, 
-                 device:torch.device | None = None,
                  dtype:torch.dtype | None = None):
         super().__init__()
         self.theta = theta
@@ -77,10 +78,10 @@ class RotaryPositionalEmbedding(nn.Module):
 
         assert self.d_k % 2 == 0
         self.half_k = self.d_k // 2
-        k = torch.arange(start=1, end=self.half_k + 1, device=device, dtype=dtype)
+        k = torch.arange(start=1, end=self.half_k + 1, dtype=dtype)
         inv_freq = 1.0 / (self.theta ** ((2 * k - 2) / self.d_k))
 
-        pos = torch.arange(self.seq_len, device=device)
+        pos = torch.arange(self.seq_len)
 
         angles = pos[:, None] * inv_freq[None, :]
 
@@ -91,7 +92,8 @@ class RotaryPositionalEmbedding(nn.Module):
         seq_len = x.shape[-2]
         if token_positions is None:
             token_positions = torch.arange(seq_len, device=x.device, dtype=torch.long)
-        token_positions = token_positions.to(x.device, dtype=torch.long)
+        else:
+            token_positions = token_positions.to(x.device, dtype=torch.long)
         
         cos = self.cos_cache[token_positions]
         sin = self.sin_cache[token_positions]
@@ -102,7 +104,7 @@ class RotaryPositionalEmbedding(nn.Module):
         x_rot_even = x_even * cos - sin * x_odd
         x_rot_odd  = x_even * sin + cos * x_odd
 
-        x_rot = torch.empty_like(x)
+        x_rot = torch.empty_like(x, device=x.device)
         x_rot[..., 0::2] = x_rot_even
         x_rot[..., 1::2] = x_rot_odd
 
@@ -113,8 +115,8 @@ def SoftMax(x:torch.Tensor, dim: int = -1):
     x_scale = x - x_max
     x_exp = x_scale.exp()
 
-    log_sum = torch.log(x_exp.sum(dim=dim, keepdim=True))
-    log_p = x_scale - log_sum
+    # log_sum = torch.log(x_exp.sum(dim=dim, keepdim=True))
+    # log_p = x_scale - log_sum
     
     x_probi = x_exp / x_exp.sum(dim=dim, keepdim=True)
     return x_probi
@@ -185,7 +187,7 @@ def multihead_self_attention_rope(
 
 
     seq_len = Q.shape[-2]
-    rope = RotaryPositionalEmbedding(theta, head_dim, max_seq_len, Q.device)
+    rope = RotaryPositionalEmbedding(theta, head_dim, max_seq_len)
     Q_r = rope(Q, token_positions)
     K_r = rope(K, token_positions)
     out = scaled_dot_product_attention(Q_r, K_r, V)
@@ -197,21 +199,20 @@ def multihead_self_attention_rope(
 class MultiHeadAttention(nn.Module):
     def __init__(self, d_model: int, d_ff: int, num_heads: int, max_seq_length: int,theta: float = 10000,
                  attn_mask:torch.Tensor | None = None, is_causal: bool =True,
-                 device:torch.device | None = None, dtype: torch.dtype | None = None):
+                 dtype: torch.dtype | None = None):
         super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
         self.d_k = self.d_model // self.num_heads
         self.is_causal = is_causal
         self.attn_mask = attn_mask
-        self.device = device
         self.max_seq_len = max_seq_length
 
-        self.q_proj = Linear(d_model, d_model, device, dtype)
-        self.k_proj = Linear(d_model, d_model, device, dtype)
-        self.v_proj = Linear(d_model, d_model, device, dtype)
-        self.output_proj = Linear(d_model, d_model, device, dtype)
-        self.RoPE = RotaryPositionalEmbedding(theta, self.d_k, max_seq_length, device, dtype)
+        self.q_proj = Linear(d_model, d_model, dtype)
+        self.k_proj = Linear(d_model, d_model, dtype)
+        self.v_proj = Linear(d_model, d_model, dtype)
+        self.output_proj = Linear(d_model, d_model, dtype)
+        self.RoPE = RotaryPositionalEmbedding(theta, self.d_k, max_seq_length, dtype)
 
     def forward(self, x: torch.Tensor, token_positions: Int[Tensor, " ... sequence_length"] | None = None):
         Q = self.q_proj(x)
@@ -231,7 +232,7 @@ class MultiHeadAttention(nn.Module):
         if self.is_causal:
             if eff_mask is not None:
                 raise ValueError("attn mask and is_causal cannot both be set")
-            eff_mask = torch.tril(torch.ones(seq_len, seq_len, dtype = torch.bool, device=self.device))
+            eff_mask = torch.tril(torch.ones(seq_len, seq_len, dtype = torch.bool, device=x.device))
         
         if eff_mask is not None:
             score.masked_fill_(~eff_mask, float("-inf"))
@@ -245,23 +246,22 @@ class MultiHeadAttention(nn.Module):
         
 class Transformer_block(nn.Module):
     def __init__(self, d_model: int, num_heads: int, d_ff: int, max_seq_len: int, theta: float,
-                 device: torch.device | None = None, dtype: torch.dtype | None = None):
+                dtype: torch.dtype | None = None):
         super().__init__()
         self.d_model = d_model
         self.d_ff = d_ff
         self.num_heads = num_heads
-        self.device = device
         self.dtype = dtype
 
-        self.ln1 = RMSNorm(self.d_model, device=self.device, dtype=self.dtype)
-        self.ln2 = RMSNorm(self.d_model, device=self.device, dtype=self.dtype)
+        self.ln1 = RMSNorm(self.d_model, dtype=self.dtype)
+        self.ln2 = RMSNorm(self.d_model, dtype=self.dtype)
         self.attn = MultiHeadAttention(d_model=self.d_model, 
                                                      d_ff=self.d_ff, 
                                                      num_heads=self.num_heads,
                                                      max_seq_length=max_seq_len,
                                                      theta=theta,
-                                                     device=self.device, dtype=self.dtype)
-        self.ffn = SwiGLU_FFN(self.d_model, self.d_ff, device=self.device, dtype=self.dtype)
+                                                     dtype=self.dtype)
+        self.ffn = SwiGLU_FFN(self.d_model, self.d_ff, dtype=self.dtype)
 
     def forward(self, x: Float[Tensor, "batch seq_len d_model"]):
         x_norm = self.ln1(x)
@@ -279,10 +279,10 @@ class Transformer(nn.Module):
                 num_heads: int,
                 d_ff: int,
                 rope_theta: float,
-                device: torch.device | None = None, dtype: torch.dtype | None = None
+                dtype: torch.dtype | None = None
                  ):
         super().__init__()
-        self.token_embeddings = Embedding(vocab_size, d_model, device=device, dtype=dtype)
+        self.token_embeddings = Embedding(vocab_size, d_model,dtype=dtype)
         self.layers = nn.ModuleList(
             [
                 Transformer_block(
@@ -291,14 +291,13 @@ class Transformer(nn.Module):
                     d_ff=d_ff,
                     max_seq_len=context_length,
                     theta=rope_theta,
-                    device=device,
                     dtype=dtype,
                 )
                 for _ in range(num_layers)
             ]
         )
-        self.ln_final = RMSNorm(d_model=d_model, device=device, dtype=dtype)
-        self.lm_head = Linear(d_model, vocab_size, device=device, dtype=dtype)
+        self.ln_final = RMSNorm(d_model=d_model, dtype=dtype)
+        self.lm_head = Linear(d_model, vocab_size,  dtype=dtype)
 
     def forward(self, x:Float[Tensor, "batch seq_len"]):
         x = self.token_embeddings(x)
@@ -403,10 +402,37 @@ def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: flo
         for p in params:
             if p.grad is not None:
                 p.grad.mul_(scale)
-                
+
     return total_g
 
+def get_batch(data: npt.NDArray, batch_size: int, context_length: int, device: str):
+    indices = torch.randint(0, len(data) - context_length, (batch_size,))
+    
+    x = torch.stack([torch.from_numpy(data[i:i+context_length]) for i in indices]).to(device)
+    y = torch.stack([torch.from_numpy(data[i+1:i+context_length+1]) for i in indices]).to(device)
 
+    return x, y
+
+
+
+
+def save_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, iteration: int, out: str | os.PathLike | typing.BinaryIO | typing.IO[bytes]):
+    ckpt = {
+        "model" : model.state_dict(),
+        "optimizer" : optimizer.state_dict(),
+        "global_step" : iteration,
+    }
+    torch.save(ckpt, out)
+    
+
+def load_checkpoint(src: str | os.PathLike | typing.BinaryIO | typing.IO[bytes], model: torch.nn.Module, optimizer: torch.optim.Optimizer):
+    ckpt = torch.load(src)
+    model.load_state_dict(ckpt["model"])
+    optimizer.load_state_dict(ckpt["optimizer"])
+    iteration = ckpt["global_step"]
+    epoch = ckpt["epoch"]
+
+    return iteration, epoch
 
 
 
