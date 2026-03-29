@@ -10,7 +10,7 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
 from cs336_basics.train_bpe import train_bpe
-from cs336_basics.tokenizer import Tokenizer
+from cs336_basics.tokenizers import Tokenizer
 
 from cs336_basics.transformer import Linear, Embedding, RMSNorm, SwiGLU_FFN, RotaryPositionalEmbedding, SoftMax, scaled_dot_product_attention
 from cs336_basics.transformer import multihead_self_attention, multihead_self_attention_rope, Transformer_block, Transformer, CrossEntropyLoss

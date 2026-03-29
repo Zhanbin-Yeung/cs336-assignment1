@@ -307,7 +307,7 @@ def encode_parallel(file_path, vocab_file, merges_file, special_tokens,):
                                   merges_file = merges_file ,
                                   special_tokens = special_tokens )
             for i, (s, e) in enumerate(ranges):
-                out_file = f"../data/train_{i:02d}.bin"
+                out_file = f"../data/val_{i:03d}.bin"
                 futures.append(
                     ex.submit(process_fun, s, e, out_file)
                 )
@@ -315,9 +315,9 @@ def encode_parallel(file_path, vocab_file, merges_file, special_tokens,):
             for fut in as_completed(futures):
                 fut.result()
         
-        with open("../data/train.bin", "wb") as out:
+        with open("../data/owt_val.bin", "wb") as out:
             for i in range(len(ranges)):
-                tmp_file = f"../data/train_{i:02d}.bin"
+                tmp_file = f"../data/val_{i:03d}.bin"
                 with open(tmp_file, "rb") as f:
                     shutil.copyfileobj(f, out)
                 os.remove(tmp_file)
@@ -325,11 +325,14 @@ def encode_parallel(file_path, vocab_file, merges_file, special_tokens,):
 
 def main():
     special_tokens = ["<|endoftext|>"]
-    input_file = "../data/TinyStoriesV2-GPT4-train.txt"
-    vocab_file = "../data/vocab.txt"
-    merges_file = "../data/merges.txt"
+    input_file = "../data/owt_valid.txt"
+    vocab_file = "../data/owt_vocab.txt"
+    merge_file = "../data/owt_merges.txt"
+    st = time.time()
+    encode_parallel(input_file, vocab_file, merge_file,special_tokens)
+    ed = time.time()
+    print(f"Encoding completed in {ed - st:.2f} seconds.")
 
-    encode_parallel(input_file, vocab_file, merges_file, special_tokens)
 
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)

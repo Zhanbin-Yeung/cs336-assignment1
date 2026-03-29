@@ -164,6 +164,8 @@ cython_debug/
 
 # data
 data/
-checkpoint/
+checkpoints/
+cs336_basics/wandb/
+tokenizer/
 
 .DS_Store

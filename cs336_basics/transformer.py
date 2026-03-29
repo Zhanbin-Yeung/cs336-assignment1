@@ -8,6 +8,7 @@ from torch import Tensor
 import numpy.typing as npt
 import typing
 import os
+import torch.nn.functional as F
 
 class Linear(nn.Module):
     def __init__ (self, 
@@ -213,6 +214,12 @@ class MultiHeadAttention(nn.Module):
         self.v_proj = Linear(d_model, d_model, dtype)
         self.output_proj = Linear(d_model, d_model, dtype)
         self.RoPE = RotaryPositionalEmbedding(theta, self.d_k, max_seq_length, dtype)
+        self.register_buffer(
+            "causal_mask",
+            torch.tril(torch.ones(max_seq_length, max_seq_length, dtype=torch.bool)),
+            persistent=False
+        )
+
 
     def forward(self, x: torch.Tensor, token_positions: Int[Tensor, " ... sequence_length"] | None = None):
         Q = self.q_proj(x)
@@ -229,11 +236,12 @@ class MultiHeadAttention(nn.Module):
         score = torch.matmul(Q_r, K_r.transpose(-2, -1)) / math.sqrt(Q_r.shape[-1])
         seq_len = Q_r.shape[-2]
         eff_mask = self.attn_mask
+        
         if self.is_causal:
             if eff_mask is not None:
                 raise ValueError("attn mask and is_causal cannot both be set")
-            eff_mask = torch.tril(torch.ones(seq_len, seq_len, dtype = torch.bool, device=x.device))
-        
+            eff_mask = self.causal_mask[:seq_len, :seq_len]
+
         if eff_mask is not None:
             score.masked_fill_(~eff_mask, float("-inf"))
         probi = SoftMax(score, dim=-1)
@@ -268,6 +276,10 @@ class Transformer_block(nn.Module):
         h = x + self.attn(x_norm)
         h_norm = self.ln2(h)
         out = h + self.ffn(h_norm)
+
+        # post norm
+        # x_norm = self.ln1(x + self.attn(x))
+        # out = self.ln2(x_norm + self.ffn(x_norm))
 
         return out
     

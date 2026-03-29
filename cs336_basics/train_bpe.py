@@ -365,8 +365,8 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str] = None
         for s in special_tokens:
             vocab[n] = s.encode('utf-8')
             n += 1
-    save_vocab(vocab, "../data/vocab.txt")
-    save_merges(merges, "../data/merges.txt")
+    save_vocab(vocab, "../data/owt_vocab.txt")
+    save_merges(merges, "../data/owt_merges.txt")
 
     return vocab, merges
 
@@ -397,8 +397,8 @@ if __name__ == "__main__":
     if args.profile_main or args.profile_workers:
         Path(args.prof_dir).mkdir(parents=True, exist_ok=True)
 
-    input_path = "../data/TinyStoriesV2-GPT4-train.txt"
-    vocab_size = 10_000
+    input_path = "../data/owt_train.txt"
+    vocab_size = 32_000
     special_tokens = ["<|endoftext|>"]
 
     def runner():

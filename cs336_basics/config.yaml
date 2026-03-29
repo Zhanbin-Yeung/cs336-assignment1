@@ -1,26 +1,51 @@
 # data
-input_file: ../data/train.bin
-context_length: 2048
-vocab_size: 10000
+input_file: ../data/owt_train.bin
+val_input_file: ../data/owt_val.bin
+context_length: 256
+vocab_size: 32000
 
 # model
-d_model: 4096
-num_heads: 8
-num_layers: 8
-d_ff: 10240
+d_model: 512
+num_heads: 16
+num_layers: 4
+d_ff: 1344
 rope_theta: 10000.0
 
 # train
-batch_size: 32
-lr: 1e-3
+micro_batch_size: 16         
+batch_size: 64            
+lr: 0.00005
 weight_decay: 0.1
 beta1: 0.9
 beta2: 0.99
 grad_clip: 1.0
-epoch: 5
-warmup_steps: 200
-checkpoint_path: ../checkpoint
-resume: null
-log_interval: 100
-save_interval: 1000
+epoch: 3
+
+warmup_steps: 500
+max_steps: 20000
+min_lr: 0.000005
+
+checkpoint_dir: ../checkpoints
+resume: ../checkpoints/ckpt_final_step10000.pt
+
+log_interval: 100 
+save_interval: 2500
+val_interval: 200
+
+wandb_project: cs336-basics
+wandb_group: owt_train
+target_val_loss: 1.45
+val_steps: 200         # evaluate() 每次跑多少步
+
+#tokenizer
+vocab_file: ../data/owt_vocab.txt
+merges_file: ../data/owt_merges.txt
+special_tokens:
+  - "<|endoftext|>"
+
+# inference
+inference_length: 256
+temperature: 1.0
+top_k: 200
+p: 0.9
 
